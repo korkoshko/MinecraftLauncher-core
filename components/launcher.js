@@ -14,8 +14,8 @@ class MCLCore extends EventEmitter {
         this.options.root = path.resolve(this.options.root);
 
         // Simplified overrides so launcher devs can set the paths to what ever they want. see docs for variable names.
-        if(!this.options.overrides) this.options.overrides = { url: {} };
-        if(!this.options.overrides.url) this.options.overrides.url = {};
+        if (!this.options.overrides) this.options.overrides = {url: {}};
+        if (!this.options.overrides.url) this.options.overrides.url = {};
         this.options.overrides.url = {
             meta: this.options.overrides.url.meta || "https://launchermeta.mojang.com",
             resource: this.options.overrides.url.resource || "https://resources.download.minecraft.net",
@@ -25,30 +25,30 @@ class MCLCore extends EventEmitter {
         };
         this.handler = new handler(this);
         // Lets the events register. our magic switch!
-        await void(0);
+        await void (0);
 
-        this.emit('debug', `[MCLC]: MCLC version ${require(path.join(__dirname,'..', 'package.json')).version}`);
+        this.emit('debug', `[MCLC]: MCLC version ${require(path.join(__dirname, '..', 'package.json')).version}`);
         const java = await this.handler.checkJava(this.options.javaPath || 'java');
-        if(!java.run) {
+        if (!java.run) {
             this.emit('debug', `[MCLC]: Couldn't start Minecraft due to: ${java.message}`);
             this.emit('close', 1);
             return null;
         }
 
-        if(!fs.existsSync(this.options.root)) {
+        if (!fs.existsSync(this.options.root)) {
             this.emit('debug', '[MCLC]: Attempting to create root folder');
             fs.mkdirSync(this.options.root);
         }
 
-        if(this.options.clientPackage) {
+        if (this.options.clientPackage) {
             this.emit('debug', `[MCLC]: Extracting client package to ${this.options.root}`);
             await this.handler.extractPackage();
         }
 
-        if(this.options.installer) {
+        if (this.options.installer) {
             // So the forge installer can run without breaking :)
             const profilePath = path.join(this.options.root, 'launcher_profiles.json');
-            if(!fs.existsSync(profilePath))
+            if (!fs.existsSync(profilePath))
                 fs.writeFileSync(profilePath, JSON.stringify({}, null, 4));
             await this.handler.runInstaller(this.options.installer)
         }
@@ -58,7 +58,7 @@ class MCLCore extends EventEmitter {
 
         // Version JSON for the main launcher folder
         const versionFile = await this.handler.getVersion();
-        const mcPath = this.options.overrides.minecraftJar || (this.options.version.custom ? path.join(this.options.root, 'versions', this.options.version.custom , `${this.options.version.custom}.jar`):
+        const mcPath = this.options.overrides.minecraftJar || (this.options.version.custom ? path.join(this.options.root, 'versions', this.options.version.custom, `${this.options.version.custom}.jar`) :
             path.join(directory, `${this.options.version.number}.jar`));
         const nativePath = await this.handler.getNatives();
 
@@ -69,11 +69,11 @@ class MCLCore extends EventEmitter {
 
         let forge = null;
         let custom = null;
-        if(this.options.forge) {
+        if (this.options.forge) {
             this.emit('debug', '[MCLC]: Detected Forge in options, getting dependencies');
             forge = await this.handler.getForgeDependenciesLegacy();
         }
-        if(this.options.version.custom) {
+        if (this.options.version.custom) {
             this.emit('debug', '[MCLC]: Detected custom in options, setting custom version file');
             custom = require(path.join(this.options.root, 'versions', this.options.version.custom, `${this.options.version.custom}.json`));
         }
@@ -90,17 +90,17 @@ class MCLCore extends EventEmitter {
             `-Xmx${this.options.memory.max}M`,
             `-Xms${this.options.memory.min}M`
         ];
-        if(this.handler.getOS() === 'osx') {
-            if(parseInt(versionFile.id.split('.')[1]) > 12) jvm.push(await this.handler.getJVM());
+        if (this.handler.getOS() === 'osx') {
+            if (parseInt(versionFile.id.split('.')[1]) > 12) jvm.push(await this.handler.getJVM());
         } else jvm.push(await this.handler.getJVM());
 
-        if(this.options.customArgs) jvm = jvm.concat(this.options.customArgs);
+        if (this.options.customArgs) jvm = jvm.concat(this.options.customArgs);
 
         const classes = this.options.overrides.classes || await handler.cleanUp(await this.handler.getClasses());
         let classPaths = ['-cp'];
         const separator = this.handler.getOS() === "windows" ? ";" : ":";
         this.emit('debug', `[MCLC]: Using ${separator} to separate class paths`);
-        if(forge) {
+        if (forge) {
             this.emit('debug', '[MCLC]: Setting Forge class paths');
             classPaths.push(`${path.resolve(this.options.forge)}${separator}${forge.paths.join(separator)}${separator}${classes.join(separator)}${separator}${mcPath}`);
             classPaths.push(forge.forge.mainClass)
@@ -123,8 +123,9 @@ class MCLCore extends EventEmitter {
         this.emit('arguments', launchArguments);
         this.emit('debug', launchArguments.join(' '));
 
-        const minecraft = child.spawn(this.options.javaPath ? this.options.javaPath : 'java', launchArguments,
-            {cwd: this.options.overrides.cwd || this.options.root});
+        const minecraft = child.spawn(this.options.javaPath ? `"${this.options.javaPath}"` : 'java', launchArguments,
+            {cwd: this.options.overrides.cwd || this.options.root, shell: true});
+
         minecraft.stdout.on('data', (data) => this.emit('data', data.toString('utf-8')));
         minecraft.stderr.on('data', (data) => this.emit('data', data.toString('utf-8')));
         minecraft.on('close', (code) => this.emit('close', code));
