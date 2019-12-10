@@ -128,7 +128,9 @@ class MCLCore extends EventEmitter {
 
         minecraft.stdout.on('data', (data) => this.emit('data', data.toString('utf-8')));
         minecraft.stderr.on('data', (data) => this.emit('data', data.toString('utf-8')));
+
         minecraft.on('close', (code) => this.emit('close', code));
+        minecraft.on('error', (error) => this.emit('launch-error', error));
 
         return minecraft;
     }
