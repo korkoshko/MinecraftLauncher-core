@@ -115,13 +115,15 @@ class Handler {
 
                 for (const desiredVersion in parsed.versions) {
                     if (parsed.versions[desiredVersion].id === this.options.version.number) {
-                        request.get(parsed.versions[desiredVersion].url, (error, response, body) => {
-                            if (error) resolve(error);
+                        setTimeout(() => {
+                            request.get(parsed.versions[desiredVersion].url, (error, response, body) => {
+                                if (error) resolve(error);
 
-                            this.client.emit('debug', `[MCLC]: Parsed version from version manifest`);
-                            this.version = JSON.parse(body);
-                            resolve(this.version);
-                        });
+                                this.client.emit('debug', `[MCLC]: Parsed version from version manifest`);
+                                this.version = JSON.parse(body);
+                                resolve(this.version);
+                            });
+                        })
                     }
                 }
             });
@@ -499,8 +501,8 @@ class Handler {
                     args[index] = fields[args[index]];
                 }
             }
-            
-            if(this.options.window) this.options.window.fullscreen ? args.push('--fullscreen') : args.push('--width', this.options.window.width, '--height', this.options.window.height);           
+
+            if(this.options.window) this.options.window.fullscreen ? args.push('--fullscreen') : args.push('--width', this.options.window.width, '--height', this.options.window.height);
             if(this.options.server) args.push('--server', this.options.server.host, '--port', this.options.server.port || "25565");
             if(this.options.proxy) args.push(
                 '--proxyHost',
