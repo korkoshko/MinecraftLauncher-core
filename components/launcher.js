@@ -1,6 +1,6 @@
 const child = require('child_process');
 const path = require('path');
-const handler = require('./handler');
+const handler = require('minecraft-launcher-core/components/handler');
 const fs = require('fs');
 const EventEmitter = require('events').EventEmitter;
 
@@ -71,7 +71,7 @@ class MCLCore extends EventEmitter {
         let custom = null;
         if (this.options.forge) {
             this.emit('debug', '[MCLC]: Detected Forge in options, getting dependencies');
-            forge = await this.handler.getForgeDependenciesLegacy();
+            forge = await this.handler.installForge(this.options.forge);
         }
         if (this.options.version.custom) {
             this.emit('debug', '[MCLC]: Detected custom in options, setting custom version file');

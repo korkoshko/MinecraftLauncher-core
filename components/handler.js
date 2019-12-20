@@ -1,10 +1,12 @@
-const fs =  require('fs');
+const fs = require('fs');
 const shelljs = require('shelljs');
 const path = require('path');
 const request = require('request');
 const checksum = require('checksum');
 const zip = require('adm-zip');
 const child = require('child_process');
+const ForgeUtils = require('./forgeUtils');
+
 let counter = 0;
 
 class Handler {
@@ -27,7 +29,7 @@ class Handler {
                         message: error
                     })
                 } else {
-                    this.client.emit('debug', `[MCLC]: Using Java version ${stderr.match(/"(.*?)"/).pop()} ${stderr.includes('64-Bit') ? '64-bit': '32-Bit'}`);
+                    this.client.emit('debug', `[MCLC]: Using Java version ${stderr.match(/"(.*?)"/).pop()} ${stderr.includes('64-Bit') ? '64-bit' : '32-Bit'}`);
                     resolve({
                         run: true
                     });
@@ -143,13 +145,13 @@ class Handler {
     }
 
     getAssets() {
-        return new Promise(async(resolve) => {
-            if(!fs.existsSync(path.join(this.options.root, 'assets', 'indexes', `${this.version.assetIndex.id}.json`))) {
+        return new Promise(async (resolve) => {
+            if (!fs.existsSync(path.join(this.options.root, 'assets', 'indexes', `${this.version.assetIndex.id}.json`))) {
                 await this.downloadAsync(this.version.assetIndex.url, path.join(this.options.root, 'assets', 'indexes'),
                     `${this.version.assetIndex.id}.json`, true, 'asset-json');
             }
 
-            const index = require(path.join(this.options.root, 'assets', 'indexes',`${this.version.assetIndex.id}.json`));
+            const index = require(path.join(this.options.root, 'assets', 'indexes', `${this.version.assetIndex.id}.json`));
 
             this.client.emit('progress', {
                 type: 'assets',
@@ -159,11 +161,11 @@ class Handler {
 
             await Promise.all(Object.keys(index.objects).map(async asset => {
                 const hash = index.objects[asset].hash;
-                const subhash = hash.substring(0,2);
+                const subhash = hash.substring(0, 2);
                 const assetDirectory = this.options.overrides.assetRoot || path.join(this.options.root, 'assets');
                 const subAsset = path.join(assetDirectory, 'objects', subhash);
 
-                if(!fs.existsSync(path.join(subAsset, hash)) || !await this.checkSum(hash, path.join(subAsset, hash))) {
+                if (!fs.existsSync(path.join(subAsset, hash)) || !await this.checkSum(hash, path.join(subAsset, hash))) {
                     await this.downloadAsync(`${this.options.overrides.url.resource}/${subhash}/${hash}`, subAsset, hash,
                         true, 'assets');
                     counter = counter + 1;
@@ -177,7 +179,7 @@ class Handler {
             counter = 0;
 
             // Copy assets to legacy if it's an older Minecraft version.
-            if(this.version.assets === "legacy" || this.version.assets === "pre-1.6") {
+            if (this.version.assets === "legacy" || this.version.assets === "pre-1.6") {
                 const assetDirectory = this.options.overrides.assetRoot || path.join(this.options.root, 'assets');
                 this.client.emit('debug', `[MCLC]: Copying assets over to ${path.join(assetDirectory, 'legacy')}`);
 
@@ -189,13 +191,13 @@ class Handler {
 
                 await Promise.all(Object.keys(index.objects).map(async asset => {
                     const hash = index.objects[asset].hash;
-                    const subhash = hash.substring(0,2);
+                    const subhash = hash.substring(0, 2);
                     const subAsset = path.join(assetDirectory, 'objects', subhash);
 
                     let legacyAsset = asset.split('/');
                     legacyAsset.pop();
 
-                    if(!fs.existsSync(path.join(assetDirectory, 'legacy', legacyAsset.join('/')))) {
+                    if (!fs.existsSync(path.join(assetDirectory, 'legacy', legacyAsset.join('/')))) {
                         shelljs.mkdir('-p', path.join(assetDirectory, 'legacy', legacyAsset.join('/')));
                     }
 
@@ -218,7 +220,7 @@ class Handler {
     }
 
     parseRule(lib) {
-        if(lib.rules) {
+        if (lib.rules) {
             if (lib.rules.length > 1) {
                 if (lib.rules[0].action === 'allow' &&
                     lib.rules[1].action === 'disallow' &&
@@ -236,10 +238,10 @@ class Handler {
     }
 
     getNatives() {
-        return new Promise(async(resolve) => {
+        return new Promise(async (resolve) => {
             const nativeDirectory = this.options.overrides.natives || path.join(this.options.root, 'natives', this.version.id);
 
-            if(!fs.existsSync(nativeDirectory) || !fs.readdirSync(nativeDirectory).length) {
+            if (!fs.existsSync(nativeDirectory) || !fs.readdirSync(nativeDirectory).length) {
                 shelljs.mkdir('-p', nativeDirectory);
 
                 const natives = () => {
@@ -255,7 +257,7 @@ class Handler {
 
                             natives.push(native);
                         }));
-                        resolve (natives);
+                        resolve(natives);
                     })
                 };
                 const stat = await natives();
@@ -297,71 +299,104 @@ class Handler {
         });
     }
 
-    async getForgeDependenciesLegacy() {
-        if(!fs.existsSync(path.join(this.options.root, 'forge'))) {
-            shelljs.mkdir('-p', path.join(this.options.root, 'forge'));
+    async installForge(installer) {
+        const forgeZip = new zip(installer);
+
+        const forgeVersionFile = forgeZip.readAsText('version.json');
+        const forgeInstallProfile = JSON.parse(forgeZip.readAsText('install_profile.json'));
+
+        const forgeVersion = JSON.parse(forgeVersionFile);
+
+        const forgePath = path.join(this.options.root, 'versions', forgeVersion.id);
+
+        if (!fs.existsSync(forgePath)) {
+            fs.mkdirSync(forgePath);
         }
 
-        try {
-            await new zip(this.options.forge).extractEntryTo('version.json', path.join(this.options.root, 'forge', `${this.version.id}`), false, true);
-        } catch(e) {
-            this.client.emit('debug', `[MCLC]: Unable to extract version.json from the forge jar due to ${e}`);
-            return null;
-        }
+        fs.writeFileSync(path.join(forgePath, forgeVersion.id + '.json'), forgeVersionFile);
+        fs.writeFileSync(path.join(forgePath, 'install_profile.json'), JSON.stringify(forgeInstallProfile));
 
-        const forge = require(path.join(this.options.root, 'forge', `${this.version.id}`, 'version.json'));
+        const forgeParseVersionId = ForgeUtils.getParseVersionId(forgeVersion.id);
+
+        const forge = {
+            entry: `maven/net/minecraftforge/forge/${forgeParseVersionId}/forge-${forgeParseVersionId}.jar`,
+            universalEntry: `maven/net/minecraftforge/forge/${forgeParseVersionId}/forge-${forgeParseVersionId}-universal.jar`,
+            clientData: 'data/client.lzma',
+        };
+
+        const pathToExtract = path.join(this.options.root, 'libraries', 'net', 'minecraftforge', 'forge', forgeParseVersionId);
+
+        forgeZip.extractEntryTo(forge.clientData, path.join(forgePath, 'data'), false, true);
+        forgeZip.extractEntryTo(forge.entry, pathToExtract, false, true);
+        forgeZip.extractEntryTo(forge.universalEntry, pathToExtract, false, true);
+
+        await this.getForgeDependencies([...forgeVersion.libraries, ...forgeInstallProfile.libraries]);
+
+        const forgeUtilsInstance = new ForgeUtils(
+            path.join(this.options.root, 'libraries'),
+            path.join(this.options.root, 'versions', forgeVersion.id),
+            path.join(this.options.root, 'versions', this.options.version.number, this.options.version.number + '.jar')
+        );
+
+        await forgeUtilsInstance.prepareProcessors(forgeInstallProfile);
+    }
+
+    async getForgeDependencies(forgeLibs) {
         const paths = [];
 
         this.client.emit('progress', {
             type: 'forge',
             task: 0,
-            total: forge.libraries.length
+            total: forgeLibs.length
         });
 
-        await Promise.all(forge.libraries.map(async library => {
-            const lib = library.name.split(':');
+        await Promise.all(forgeLibs.map(async library => {
+            let lib = library.name.split(':');
 
-            if(lib[0] === 'net.minecraftforge' && lib[1].includes('forge')) return;
-
-            let url = this.options.overrides.url.mavenForge;
-            const jarPath = path.join(this.options.root, 'libraries', `${lib[0].replace(/\./g, '/')}/${lib[1]}/${lib[2]}`);
-            const name = `${lib[1]}-${lib[2]}.jar`;
-
-            if(!library.url) {
-                if(library.serverreq || library.clientreq) {
-                    url = this.options.overrides.url.defaultRepoForge;
-                } else {
-                    return
-                }
-            }
-
-            const downloadLink = `${url}${lib[0].replace(/\./g, '/')}/${lib[1]}/${lib[2]}/${name}`;
-
-
-            if(fs.existsSync(path.join(jarPath, name))) {
-                paths.push(`${jarPath}${path.sep}${name}`);
-                counter = counter + 1;
-                this.client.emit('progress', { type: 'forge', task: counter, total: forge.libraries.length});
+            if (lib[0] === 'net.minecraftforge' && lib[1] === 'forge') {
                 return;
             }
-            if(!fs.existsSync(jarPath)) shelljs.mkdir('-p', jarPath);
+
+            let url = this.options.overrides.url.mavenForge;
+
+            const fileExt = lib[2].split('@');
+            const jarPath = path.join(this.options.root, 'libraries', `${lib[0].replace(/\./g, '/')}/${lib[1]}/${fileExt[0]}`);
+            const name = fileExt[1] ? `${lib[1]}-${fileExt[0]}.${fileExt[1]}` : `${lib[1]}-${fileExt[0]}.jar`;
+
+            const downloadLink = library.downloads.artifact.url;
+
+            if (fs.existsSync(path.join(jarPath, name))) {
+                paths.push(`${jarPath}${path.sep}${name}`);
+                counter = counter + 1;
+                this.client.emit('progress', {type: 'forge', task: counter, total: forgeLibs.length});
+                return;
+            }
+
+            if (!fs.existsSync(jarPath)) {
+                shelljs.mkdir('-p', jarPath);
+            }
 
             const download = await this.downloadAsync(downloadLink, jarPath, name, true, 'forge');
-            if(!download) await this.downloadAsync(`${this.options.overrides.url.fallbackMaven}${lib[0].replace(/\./g, '/')}/${lib[1]}/${lib[2]}/${name}`, jarPath, name, true, 'forge');
+
+            if (!download) {
+                console.error(downloadLink);
+            }
 
             paths.push(`${jarPath}${path.sep}${name}`);
+
             counter = counter + 1;
             this.client.emit('progress', {
                 type: 'forge',
                 task: counter,
-                total: forge.libraries.length
+                total: forgeLibs.length
             })
         }));
 
         counter = 0;
+
         this.client.emit('debug', '[MCLC]: Downloaded Forge dependencies');
 
-        return {paths, forge};
+        return {paths, forgeLibs};
     }
 
     runInstaller(path) {
@@ -375,7 +410,7 @@ class Handler {
         return new Promise(async (resolve) => {
             const libs = [];
 
-            if(this.options.version.custom) {
+            if (this.options.version.custom) {
                 const customJarJson = require(path.join(this.options.root, 'versions', this.options.version.custom, `${this.options.version.custom}.json`));
 
                 this.client.emit('progress', {
@@ -390,8 +425,8 @@ class Handler {
                     const jarPath = path.join(this.options.root, 'libraries', `${lib[0].replace(/\./g, '/')}/${lib[1]}/${lib[2]}`);
                     const name = `${lib[1]}-${lib[2]}.jar`;
 
-                    if(!fs.existsSync(path.join(jarPath, name))) {
-                        if(library.url) {
+                    if (!fs.existsSync(path.join(jarPath, name))) {
+                        if (library.url) {
                             const url = `${library.url}${lib[0].replace(/\./g, '/')}/${lib[1]}/${lib[2]}/${lib[1]}-${lib[2]}.jar`;
                             await this.downloadAsync(url, jarPath, name, true, 'classes-custom');
                         }
@@ -411,8 +446,8 @@ class Handler {
                 return new Promise(async resolve => {
                     const classes = [];
                     await Promise.all(this.version.libraries.map(async (_lib) => {
-                        if(!_lib.downloads.artifact) return;
-                        if(this.parseRule(_lib)) return;
+                        if (!_lib.downloads.artifact) return;
+                        if (this.parseRule(_lib)) return;
 
                         classes.push(_lib);
                     }));
@@ -433,7 +468,7 @@ class Handler {
                 const libraryHash = _lib.downloads.artifact.sha1;
                 const libraryDirectory = path.join(this.options.root, 'libraries', libraryPath);
 
-                if(!fs.existsSync(libraryDirectory) || !await this.checkSum(libraryHash, libraryDirectory)) {
+                if (!fs.existsSync(libraryDirectory) || !await this.checkSum(libraryHash, libraryDirectory)) {
                     let directory = libraryDirectory.split(path.sep);
                     const name = directory.pop();
                     directory = directory.join(path.sep);
@@ -459,8 +494,8 @@ class Handler {
         return new Promise(resolve => {
             const newArray = [];
 
-            for(let classPath in array) {
-                if(newArray.includes(array[classPath])) continue;
+            for (let classPath in array) {
+                if (newArray.includes(array[classPath])) continue;
                 newArray.push(array[classPath]);
             }
             resolve(newArray);
@@ -470,13 +505,20 @@ class Handler {
     getLaunchOptions(modification) {
         return new Promise(async resolve => {
             let type = modification || this.version;
-
             let args = type.minecraftArguments ? type.minecraftArguments.split(' ') : type.arguments.game;
+
+            if (modification) {
+                args = [...this.version.arguments.game, ...type.arguments.game];
+            }
+
             const assetRoot = this.options.overrides.assetRoot || path.join(this.options.root, 'assets');
             const assetPath = this.version.assets === "legacy" || this.version.assets === "pre-1.6" ? path.join(assetRoot, 'legacy') : path.join(assetRoot);
 
             const minArgs = this.options.overrides.minArgs || 5;
-            if(args.length < minArgs) args = args.concat(this.version.minecraftArguments ? this.version.minecraftArguments.split(' ') : this.version.arguments.game);
+
+            if (args.length < minArgs) {
+                args = args.concat(this.version.minecraftArguments ? this.version.minecraftArguments.split(' ') : this.version.arguments.game);
+            }
 
             this.options.authorization = await Promise.resolve(this.options.authorization);
 
@@ -496,26 +538,35 @@ class Handler {
             };
 
             for (let index = 0; index < args.length; index++) {
-                if(typeof args[index] === 'object') args.splice(index, 2);
+                if (typeof args[index] === 'object') args.splice(index, 2);
                 if (Object.keys(fields).includes(args[index])) {
                     args[index] = fields[args[index]];
                 }
             }
 
-            if(this.options.window) this.options.window.fullscreen ? args.push('--fullscreen') : args.push('--width', this.options.window.width, '--height', this.options.window.height);
-            if(this.options.server) args.push('--server', this.options.server.host, '--port', this.options.server.port || "25565");
-            if(this.options.proxy) args.push(
-                '--proxyHost',
-                this.options.proxy.host,
-                '--proxyPort',
-                this.options.proxy.port || "8080",
-                '--proxyUser',
-                this.options.proxy.username,
-                '--proxyPass',
-                this.options.proxy.password
-            );
+            if (this.options.window) {
+                this.options.window.fullscreen ? args.push('--fullscreen') : args.push('--width', this.options.window.width, '--height', this.options.window.height);
+            }
+
+            if (this.options.server) {
+                args.push('--server', this.options.server.host, '--port', this.options.server.port || "25565");
+            }
+
+            if (this.options.proxy) {
+                args.push(
+                    '--proxyHost',
+                    this.options.proxy.host,
+                    '--proxyPort',
+                    this.options.proxy.port || "8080",
+                    '--proxyUser',
+                    this.options.proxy.username,
+                    '--proxyPass',
+                    this.options.proxy.password
+                );
+            }
 
             this.client.emit('debug', '[MCLC]: Set launch options');
+
             resolve(args);
         });
     }
@@ -526,30 +577,28 @@ class Handler {
             "osx": "-XstartOnFirstThread",
             "linux": "-Xss1M"
         };
+
         return opts[this.getOS()]
     }
 
     getOS() {
-        if(this.options.os) {
-            return this.options.os;
-        } else {
-            switch(process.platform) {
-                case "win32": return "windows";
-                case "darwin": return "osx";
-                default: return "linux";
-            }
-        }
+        const os = {
+            win32: 'windows',
+            darwin: 'osx',
+        };
+
+        return this.options.os ? this.options.os : os[process.platform] ? os[process.platform] : 'linux';
     }
 
     extractPackage(options = this.options) {
         return new Promise(async resolve => {
-            if(options.clientPackage.startsWith('http')) {
+            if (options.clientPackage.startsWith('http')) {
                 await this.downloadAsync(options.clientPackage, options.root, "clientPackage.zip", true, 'client-package');
                 options.clientPackage = path.join(options.root, "clientPackage.zip")
             }
             new zip(options.clientPackage).extractAllTo(options.root, true);
             this.client.emit('package-extract', true);
-            if(options.removePackage) shelljs.rm(options.clientPackage);
+            if (options.removePackage) shelljs.rm(options.clientPackage);
             resolve();
         });
     }
