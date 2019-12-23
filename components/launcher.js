@@ -1,6 +1,6 @@
 const child = require('child_process');
 const path = require('path');
-const handler = require('minecraft-launcher-core/components/handler');
+const handler = require('./handler');
 const fs = require('fs');
 const EventEmitter = require('events').EventEmitter;
 
@@ -58,8 +58,10 @@ class MCLCore extends EventEmitter {
 
         // Version JSON for the main launcher folder
         const versionFile = await this.handler.getVersion();
-        const mcPath = this.options.overrides.minecraftJar || (this.options.version.custom ? path.join(this.options.root, 'versions', this.options.version.custom, `${this.options.version.custom}.jar`) :
-            path.join(directory, `${this.options.version.number}.jar`));
+
+        const mcPath = this.options.overrides.minecraftJar
+            || this.handler.getVersionPath(this.options.version.custom || this.options.version.number);
+
         const nativePath = await this.handler.getNatives();
 
         if (!fs.existsSync(mcPath)) {
@@ -69,10 +71,23 @@ class MCLCore extends EventEmitter {
 
         let forge = null;
         let custom = null;
-        if (this.options.forge) {
-            this.emit('debug', '[MCLC]: Detected Forge in options, getting dependencies');
-            forge = await this.handler.installForge(this.options.forge);
+
+        if (this.options.version.forge) {
+            forge = await this.handler.detectForgeInstall(this.options.version.number);
+
+            if (forge) {
+                this.emit('debug', `[MCLC]: Forge detected: ${forge.version}`);
+            } else {
+                this.emit('debug', `[MCLC]: Forge not installed: ${this.options.version.number}. Attempting to download forge installer`);
+
+                forge = await this.handler.installForge(
+                    await this.handler.downloadForgeInstaller(this.options.version.number)
+                );
+            }
+
+            this.options.version.custom = forge.version;
         }
+
         if (this.options.version.custom) {
             this.emit('debug', '[MCLC]: Detected custom in options, setting custom version file');
             custom = require(path.join(this.options.root, 'versions', this.options.version.custom, `${this.options.version.custom}.json`));
@@ -100,23 +115,20 @@ class MCLCore extends EventEmitter {
         let classPaths = ['-cp'];
         const separator = this.handler.getOS() === "windows" ? ";" : ":";
         this.emit('debug', `[MCLC]: Using ${separator} to separate class paths`);
-        if (forge) {
-            this.emit('debug', '[MCLC]: Setting Forge class paths');
-            classPaths.push(`${path.resolve(this.options.forge)}${separator}${forge.paths.join(separator)}${separator}${classes.join(separator)}${separator}${mcPath}`);
-            classPaths.push(forge.forge.mainClass)
-        } else {
-            const file = custom || versionFile;
-            const jar = fs.existsSync(mcPath) ? `${mcPath}${separator}` : '';
-            classPaths.push(`${jar}${classes.join(separator)}`);
-            classPaths.push(file.mainClass);
-        }
+
+        const file = custom || versionFile;
+        const jar = fs.existsSync(mcPath) ? `${mcPath}${separator}` : '';
+
+        classPaths.push(`${jar}${classes.join(separator)}`);
+        classPaths.push(file.mainClass);
 
         // Download version's assets
         this.emit('debug', '[MCLC]: Attempting to download assets');
         await this.handler.getAssets();
 
         // Launch options. Thank you Lyrus for the reformat <3
-        const modification = forge ? forge.forge : null || custom ? custom : null;
+
+        const modification = custom || null;
         const launchOptions = await this.handler.getLaunchOptions(modification);
 
         const launchArguments = args.concat(jvm, classPaths, launchOptions);

@@ -339,6 +339,11 @@ class Handler {
         );
 
         await forgeUtilsInstance.prepareProcessors(forgeInstallProfile);
+
+        return {
+            version: forgeVersion.id,
+            config: path.join(forgePath, forgeVersion.id + '.json')
+        };
     }
 
     async getForgeDependencies(forgeLibs) {
@@ -397,6 +402,48 @@ class Handler {
         this.client.emit('debug', '[MCLC]: Downloaded Forge dependencies');
 
         return {paths, forgeLibs};
+    }
+
+    async detectForgeInstall(version) {
+        const versions = fs.readdirSync(
+            path.join(this.options.root, 'versions')
+        );
+
+        const forge = versions.findIndex(dir => {
+            return dir.includes(`${version}-forge`);
+        });
+
+        if (forge === -1) {
+            return null;
+        }
+
+        const versionConfig = path.join(this.options.root, 'versions', versions[forge], versions[forge] + '.json');
+
+        if (!fs.existsSync(versionConfig)) {
+            return null;
+        }
+
+        return {
+            version: versions[forge],
+            config: versionConfig,
+        };
+    }
+
+    async downloadForgeInstaller(version) {
+        const downloadLink = await ForgeUtils.getForgeInstallerLink(version);
+
+        if (!downloadLink) {
+            return false;
+        }
+
+        const download = await this.downloadAsync(downloadLink, this.options.root, `forge-installer-${version}.zip`, false, 'forge')
+
+        if (!download) {
+            console.error(`[MCLC]: Failed to download forge installer: ${downloadLink}`);
+            return false;
+        }
+
+        return path.join(this.options.root, `forge-installer-${version}.zip`);
     }
 
     runInstaller(path) {
@@ -588,6 +635,10 @@ class Handler {
         };
 
         return this.options.os ? this.options.os : os[process.platform] ? os[process.platform] : 'linux';
+    }
+
+    getVersionPath(version) {
+        return path.join(this.options.root, 'versions', version, version + '.jar');
     }
 
     extractPackage(options = this.options) {

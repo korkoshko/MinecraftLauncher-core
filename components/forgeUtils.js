@@ -2,8 +2,12 @@ const fs = require('fs');
 const path = require('path');
 const zip = require('adm-zip');
 const child = require('child_process');
+const request = require('request');
+const {parse} = require('node-html-parser');
 
 class ForgeUtils {
+    static forgeUrl = 'https://files.minecraftforge.net';
+
     constructor(lib, version, minecraft) {
         this.paths = {
             lib: lib,
@@ -66,7 +70,6 @@ class ForgeUtils {
     installForgeProcessors(installProfile) {
         installProfile.processors.forEach(proc => {
 
-            console.log(proc);
             const pathJar = ForgeUtils.processPath(this.paths.lib, proc.jar);
 
             if (!fs.existsSync(pathJar)) {
@@ -88,6 +91,33 @@ class ForgeUtils {
 
             console.log(result.stdout.toString('utf-8'));
             console.error(result.stderr.toString('utf-8'));
+        });
+    }
+
+    static getForgeInstallerLink(version) {
+        return new Promise(resolve => {
+            request(ForgeUtils.forgeUrl + `/maven/net/minecraftforge/forge/index_${version}.html`,
+                (err, response, body) => {
+                    if (err) throw err;
+
+                    const page = parse(body);
+                    const downLoadLinks = page.querySelector('.download-list')
+                        .querySelector('ul.download-links')
+                        .querySelectorAll('a');
+
+                    for (const link in downLoadLinks) {
+                        const href = downLoadLinks[link].attributes.href;
+
+                        if (!href || href.includes('https') || !href.includes('installer')) {
+                            continue;
+                        }
+
+                        resolve(this.forgeUrl + href);
+                        return;
+                    }
+
+                    response(null);
+                })
         });
     }
 
