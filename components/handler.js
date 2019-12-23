@@ -340,6 +340,9 @@ class Handler {
 
         await forgeUtilsInstance.prepareProcessors(forgeInstallProfile);
 
+        this.client.emit('debug', `[MCLC]: Removing forge installer: ${installer}`);
+        fs.unlinkSync(installer);
+
         return {
             version: forgeVersion.id,
             config: path.join(forgePath, forgeVersion.id + '.json')
