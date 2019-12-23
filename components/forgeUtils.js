@@ -78,7 +78,7 @@ class ForgeUtils {
 
             const classes = [...proc.classpath, proc.jar]
                 .map(proc => ForgeUtils.processPath(this.paths.lib, proc))
-                .join(':');
+                .join(process.platform === 'win32' ? ';' : ':');
 
             // TODO: Add forge success / error event
 
@@ -89,8 +89,8 @@ class ForgeUtils {
                 ...proc.args
             ]);
 
-            console.log(result.stdout.toString('utf-8'));
-            console.error(result.stderr.toString('utf-8'));
+            console.log(result.stdout && result.stdout.toString('utf-8'));
+            console.error(result.stderr && result.stderr.toString('utf-8'));
         });
     }
 
