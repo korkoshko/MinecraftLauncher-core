@@ -13,9 +13,12 @@ class MCLCore extends EventEmitter {
         this.options = options;
         this.options.root = path.resolve(this.options.root);
 
+        const minecraftVersion = this.options.version.number;
+
         // Simplified overrides so launcher devs can set the paths to what ever they want. see docs for variable names.
         if (!this.options.overrides) this.options.overrides = {url: {}};
         if (!this.options.overrides.url) this.options.overrides.url = {};
+
         this.options.overrides.url = {
             meta: this.options.overrides.url.meta || "https://launchermeta.mojang.com",
             resource: this.options.overrides.url.resource || "https://resources.download.minecraft.net",
@@ -23,6 +26,7 @@ class MCLCore extends EventEmitter {
             defaultRepoForge: this.options.overrides.url.defaultRepoForge || "https://libraries.minecraft.net/",
             fallbackMaven: this.options.overrides.url.fallbackMaven || "https://search.maven.org/remotecontent?filepath="
         };
+
         this.handler = new handler(this);
         // Lets the events register. our magic switch!
         await void (0);
@@ -53,14 +57,14 @@ class MCLCore extends EventEmitter {
             await this.handler.runInstaller(this.options.installer)
         }
 
-        const directory = this.options.overrides.directory || path.join(this.options.root, 'versions', this.options.version.number);
+        const directory = this.options.overrides.directory || path.join(this.options.root, 'versions', minecraftVersion);
         this.options.directory = directory;
 
         // Version JSON for the main launcher folder
         const versionFile = await this.handler.getVersion();
 
         const mcPath = this.options.overrides.minecraftJar
-            || this.handler.getVersionPath(this.options.version.custom || this.options.version.number);
+            || this.handler.getVersionPath(this.options.version.custom || minecraftVersion);
 
         const nativePath = await this.handler.getNatives();
 
@@ -72,20 +76,27 @@ class MCLCore extends EventEmitter {
         let forge = null;
         let custom = null;
 
+        const isLegacy = this.handler.parseVersion(minecraftVersion).minor < 13;
+
         if (this.options.version.forge) {
-            forge = await this.handler.detectForgeInstall(this.options.version.number);
+            forge = await this.handler.detectForgeInstall(minecraftVersion);
 
             if (forge) {
                 this.emit('debug', `[MCLC]: Forge detected: ${forge.version}`);
+
+                forge.paths = isLegacy ? await this.handler.getForgeDependenciesLegacy(forge.config.libraries) :
+                    await this.handler.getForgeDependencies(forge.config.libraries);
             } else {
-                this.emit('debug', `[MCLC]: Forge not installed: ${this.options.version.number}. Attempting to download forge installer`);
+                this.emit('debug', `[MCLC]: Forge not installed: ${minecraftVersion}. Attempting to download forge installer`);
 
-                forge = await this.handler.installForge(
-                    await this.handler.downloadForgeInstaller(this.options.version.number)
-                );
+                const forgeInstaller = await this.handler.downloadForgeInstaller(minecraftVersion, isLegacy);
+
+                forge = isLegacy ?
+                    await this.handler.installForgeLegacy(forgeInstaller) :
+                    await this.handler.installForge(forgeInstaller);
+
+                // forge.paths = await this.handler.getForgeDependencies(forge.config.libraries);
             }
-
-            this.options.version.custom = forge.version;
         }
 
         if (this.options.version.custom) {
@@ -105,22 +116,33 @@ class MCLCore extends EventEmitter {
             `-Xmx${this.options.memory.max}M`,
             `-Xms${this.options.memory.min}M`
         ];
+
         if (this.handler.getOS() === 'osx') {
             if (parseInt(versionFile.id.split('.')[1]) > 12) jvm.push(await this.handler.getJVM());
         } else jvm.push(await this.handler.getJVM());
 
-        if (this.options.customArgs) jvm = jvm.concat(this.options.customArgs);
+        if (this.options.customArgs) {
+            jvm = jvm.concat(this.options.customArgs);
+        }
 
+        const classPaths = ['-cp'];
         const classes = this.options.overrides.classes || await handler.cleanUp(await this.handler.getClasses());
-        let classPaths = ['-cp'];
+
         const separator = this.handler.getOS() === "windows" ? ";" : ":";
         this.emit('debug', `[MCLC]: Using ${separator} to separate class paths`);
 
-        const file = custom || versionFile;
-        const jar = fs.existsSync(mcPath) ? `${mcPath}${separator}` : '';
+        if (forge) {
+            this.emit('debug', '[MCLC]: Setting Forge class paths');
 
-        classPaths.push(`${jar}${classes.join(separator)}`);
-        classPaths.push(file.mainClass);
+            classPaths.push(`${forge.jar}${separator}${forge.paths.join(separator)}${separator}${classes.join(separator)}${separator}${mcPath}`);
+            classPaths.push(forge.config.mainClass);
+        } else {
+            const file = custom || versionFile;
+            const jar = fs.existsSync(mcPath) ? `${mcPath}${separator}` : '';
+
+            classPaths.push(`${jar}${classes.join(separator)}`);
+            classPaths.push(file.mainClass);
+        }
 
         // Download version's assets
         this.emit('debug', '[MCLC]: Attempting to download assets');
@@ -128,10 +150,11 @@ class MCLCore extends EventEmitter {
 
         // Launch options. Thank you Lyrus for the reformat <3
 
-        const modification = custom || null;
-        const launchOptions = await this.handler.getLaunchOptions(modification);
+        const modification = forge.config || custom || null;
+        const launchOptions = await this.handler.getLaunchOptions(modification, !!forge);
 
         const launchArguments = args.concat(jvm, classPaths, launchOptions);
+
         this.emit('arguments', launchArguments);
         this.emit('debug', launchArguments.join(' '));
 

@@ -1,14 +1,21 @@
 const fs = require('fs');
 const path = require('path');
 const zip = require('adm-zip');
+
+const EventEmitter = require('events');
+
 const child = require('child_process');
+
 const request = require('request');
 const {parse} = require('node-html-parser');
 
-class ForgeUtils {
+
+class ForgeUtils extends EventEmitter {
     static forgeUrl = 'https://files.minecraftforge.net';
 
     constructor(lib, version, minecraft) {
+        super();
+
         this.paths = {
             lib: lib,
             version: version,
@@ -68,6 +75,8 @@ class ForgeUtils {
     }
 
     installForgeProcessors(installProfile) {
+        this.emit('forge-install-start');
+
         installProfile.processors.forEach(proc => {
 
             const pathJar = ForgeUtils.processPath(this.paths.lib, proc.jar);
@@ -80,7 +89,6 @@ class ForgeUtils {
                 .map(proc => ForgeUtils.processPath(this.paths.lib, proc))
                 .join(process.platform === 'win32' ? ';' : ':');
 
-            // TODO: Add forge success / error event
 
             const result = child.spawnSync('java', [
                 '-cp',
@@ -89,12 +97,20 @@ class ForgeUtils {
                 ...proc.args
             ]);
 
-            console.log(result.stdout && result.stdout.toString('utf-8'));
-            console.error(result.stderr && result.stderr.toString('utf-8'));
+
+            if (result.stdout) {
+                this.emit('forge-install-data', result.stdout.toString('utf-8'));
+            }
+
+            if (result.stderr) {
+                this.emit('forge-install-error', result.stderr.toString('utf-8'));
+            }
         });
+
+        this.emit('forge-install-finish');
     }
 
-    static getForgeInstallerLink(version) {
+    static getForgeInstallerLink(version, isUniversal = false) {
         return new Promise(resolve => {
             request(ForgeUtils.forgeUrl + `/maven/net/minecraftforge/forge/index_${version}.html`,
                 (err, response, body) => {
@@ -108,7 +124,10 @@ class ForgeUtils {
                     for (const link in downLoadLinks) {
                         const href = downLoadLinks[link].attributes.href;
 
-                        if (!href || href.includes('https') || !href.includes('installer')) {
+                        if (!href
+                            || href.includes('https')
+                            || (isUniversal && !href.includes('universal'))
+                            || (!isUniversal && !href.includes('installer'))) {
                             continue;
                         }
 

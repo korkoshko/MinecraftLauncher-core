@@ -176,6 +176,7 @@ class Handler {
                     })
                 }
             }));
+
             counter = 0;
 
             // Copy assets to legacy if it's an older Minecraft version.
@@ -330,7 +331,10 @@ class Handler {
         forgeZip.extractEntryTo(forge.entry, pathToExtract, false, true);
         forgeZip.extractEntryTo(forge.universalEntry, pathToExtract, false, true);
 
-        await this.getForgeDependencies([...forgeVersion.libraries, ...forgeInstallProfile.libraries]);
+        await this.getForgeDependencies(forgeInstallProfile.libraries);
+        const forgePaths = await this.getForgeDependencies(forgeVersion.libraries);
+
+        this.client.emit('debug', '[MCLC]: Downloaded Forge dependencies');
 
         const forgeUtilsInstance = new ForgeUtils(
             path.join(this.options.root, 'libraries'),
@@ -338,14 +342,30 @@ class Handler {
             path.join(this.options.root, 'versions', this.options.version.number, this.options.version.number + '.jar')
         );
 
+        forgeUtilsInstance.on('forge-install-start', () => {
+            this.client.emit('forge-install-start');
+        });
+
+        forgeUtilsInstance.on('forge-install-finish', () => {
+            this.client.emit('forge-install-finish');
+        });
+
+        forgeUtilsInstance.on('forge-install-data', (data) => {
+            this.client.emit('forge-install-data', data);
+        });
+
+        forgeUtilsInstance.on('forge-install-error', (error) => {
+            this.client.emit('forge-install-error', error);
+        });
+
         await forgeUtilsInstance.prepareProcessors(forgeInstallProfile);
 
-        this.client.emit('debug', `[MCLC]: Removing forge installer: ${installer}`);
         fs.unlinkSync(installer);
 
         return {
-            version: forgeVersion.id,
-            config: path.join(forgePath, forgeVersion.id + '.json')
+            jar: path.join(pathToExtract, `forge-${forgeParseVersionId}.jar`),
+            paths: forgePaths,
+            config: forgeVersion,
         };
     }
 
@@ -364,8 +384,6 @@ class Handler {
             if (lib[0] === 'net.minecraftforge' && lib[1] === 'forge') {
                 return;
             }
-
-            let url = this.options.overrides.url.mavenForge;
 
             const fileExt = lib[2].split('@');
             const jarPath = path.join(this.options.root, 'libraries', `${lib[0].replace(/\./g, '/')}/${lib[1]}/${fileExt[0]}`);
@@ -402,9 +420,117 @@ class Handler {
 
         counter = 0;
 
+        return paths;
+    }
+
+    async installForgeLegacy(universalForge) {
+        let forgeVersionFile;
+
+        const forgeZip = new zip(universalForge);
+
+        try {
+            forgeVersionFile = forgeZip.readAsText('version.json');
+        } catch (e) {
+            this.client.emit('debug', `[MCLC]: Unable to extract version.json from the forge jar due to ${e}`);
+            return null;
+        }
+
+        const forgeVersion = JSON.parse(forgeVersionFile);
+        const forgePath = path.join(this.options.root, 'versions', forgeVersion.id);
+
+        if (!fs.existsSync(forgePath)) {
+            fs.mkdirSync(forgePath);
+        }
+
+        fs.writeFileSync(path.join(forgePath, forgeVersion.id + '.json'), forgeVersionFile);
+
+        const versionId = ForgeUtils.getParseVersionId(forgeVersion.id);
+        const jarPath = path.join(this.options.root, 'libraries', 'net', 'minecraftforge', 'forge', versionId);
+        const forgeJar = path.join(jarPath, `forge-${versionId}.jar`);
+
+        if (!fs.existsSync(jarPath)) {
+            shelljs.mkdir('-p', jarPath);
+        }
+
+        const paths = await this.getForgeDependenciesLegacy(forgeVersion.libraries);
+
+        fs.renameSync(universalForge, forgeJar);
+
+        return {
+            jar: forgeJar,
+            paths: paths,
+            config: forgeVersion,
+        };
+    }
+
+    async getForgeDependenciesLegacy(forgeLibs) {
+        const paths = [];
+
+        this.client.emit('progress', {
+            type: 'forge',
+            task: 0,
+            total: forgeLibs.length
+        });
+
+        await Promise.all(forgeLibs.map(async library => {
+            const lib = library.name.split(':');
+
+            if (lib[0] === 'net.minecraftforge' && lib[1].includes('forge')) {
+                return;
+            }
+
+            let url = this.options.overrides.url.mavenForge;
+
+            const jarPath = path.join(this.options.root, 'libraries', `${lib[0].replace(/\./g, '/')}/${lib[1]}/${lib[2]}`);
+            const name = `${lib[1]}-${lib[2]}.jar`;
+
+            if (!library.url) {
+                if (library.serverreq || library.clientreq) {
+                    url = this.options.overrides.url.defaultRepoForge;
+                } else {
+                    return;
+                }
+            }
+
+            const downloadLink = `${url}${lib[0].replace(/\./g, '/')}/${lib[1]}/${lib[2]}/${name}`;
+
+            if (fs.existsSync(path.join(jarPath, name))) {
+                paths.push(`${jarPath}${path.sep}${name}`);
+                counter = counter + 1;
+                this.client.emit('progress', {type: 'forge', task: counter, total: forgeLibs.length});
+                return;
+            }
+
+            if (!fs.existsSync(jarPath)) {
+                shelljs.mkdir('-p', jarPath);
+            }
+
+            const download = await this.downloadAsync(downloadLink, jarPath, name, true, 'forge');
+
+            if (!download) {
+                await this.downloadAsync(
+                    `${this.options.overrides.url.fallbackMaven}${lib[0].replace(/\./g, '/')}/${lib[1]}/${lib[2]}/${name}`,
+                    jarPath,
+                    name,
+                    true,
+                    'forge'
+                );
+            }
+
+            paths.push(`${jarPath}${path.sep}${name}`);
+            counter = counter + 1;
+
+            this.client.emit('progress', {
+                type: 'forge',
+                task: counter,
+                total: forgeLibs.length
+            })
+        }));
+
+        counter = 0;
         this.client.emit('debug', '[MCLC]: Downloaded Forge dependencies');
 
-        return {paths, forgeLibs};
+        return paths;
     }
 
     async detectForgeInstall(version) {
@@ -420,33 +546,53 @@ class Handler {
             return null;
         }
 
-        const versionConfig = path.join(this.options.root, 'versions', versions[forge], versions[forge] + '.json');
+        const versionId = ForgeUtils.getParseVersionId(versions[forge]);
 
-        if (!fs.existsSync(versionConfig)) {
+        const forgeJar = path.join(
+            this.options.root,
+            'libraries',
+            'net',
+            'minecraftforge',
+            'forge',
+            versionId,
+            `forge-${versionId}.jar`,
+        );
+
+        const versionConfig = path.join(
+            this.options.root,
+            'versions',
+            versions[forge],
+            versions[forge] + '.json'
+        );
+
+        if (!fs.existsSync(versionConfig) || !fs.existsSync(forgeJar)) {
             return null;
         }
 
         return {
+            jar: forgeJar,
             version: versions[forge],
-            config: versionConfig,
+            config: require(versionConfig),
         };
     }
 
-    async downloadForgeInstaller(version) {
-        const downloadLink = await ForgeUtils.getForgeInstallerLink(version);
+    async downloadForgeInstaller(version, isUniversal = false) {
+        const downloadLink = await ForgeUtils.getForgeInstallerLink(version, isUniversal);
 
         if (!downloadLink) {
             return false;
         }
 
-        const download = await this.downloadAsync(downloadLink, this.options.root, `forge-installer-${version}.zip`, false, 'forge')
+        const forgeZip = `forge-${isUniversal ? 'universal' : 'installer'}-${version}.jar`;
+
+        const download = await this.downloadAsync(downloadLink, this.options.root, forgeZip, false, 'forge');
 
         if (!download) {
             console.error(`[MCLC]: Failed to download forge installer: ${downloadLink}`);
             return false;
         }
 
-        return path.join(this.options.root, `forge-installer-${version}.zip`);
+        return path.join(this.options.root, forgeZip);
     }
 
     runInstaller(path) {
@@ -552,17 +698,17 @@ class Handler {
         })
     }
 
-    getLaunchOptions(modification) {
+    getLaunchOptions(modification, isForge = false) {
         return new Promise(async resolve => {
-            let type = modification || this.version;
-            let args = type.minecraftArguments ? type.minecraftArguments.split(' ') : type.arguments.game;
+            const type = modification || this.version;
 
-            if (modification) {
-                args = [...this.version.arguments.game, ...type.arguments.game];
-            }
+            let args = type.minecraftArguments ?
+                type.minecraftArguments.split(' ') :
+                (isForge ? [...this.version.arguments.game, ...type.arguments.game] : type.arguments.game);
 
             const assetRoot = this.options.overrides.assetRoot || path.join(this.options.root, 'assets');
-            const assetPath = this.version.assets === "legacy" || this.version.assets === "pre-1.6" ? path.join(assetRoot, 'legacy') : path.join(assetRoot);
+            const assetPath = this.version.assets === "legacy"
+            || this.version.assets === "pre-1.6" ? path.join(assetRoot, 'legacy') : path.join(assetRoot);
 
             const minArgs = this.options.overrides.minArgs || 5;
 
@@ -638,6 +784,16 @@ class Handler {
         };
 
         return this.options.os ? this.options.os : os[process.platform] ? os[process.platform] : 'linux';
+    }
+
+    parseVersion(version) {
+        version = version.split('.');
+
+        return {
+            major: version[0] === undefined ? null : parseInt(version[0]),
+            minor: version[1] === undefined ? null : parseInt(version[1]),
+            build: version[2] === undefined ? null : parseInt(version[2]),
+        }
     }
 
     getVersionPath(version) {
