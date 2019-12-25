@@ -150,7 +150,7 @@ class MCLCore extends EventEmitter {
 
         // Launch options. Thank you Lyrus for the reformat <3
 
-        const modification = forge.config || custom || null;
+        const modification = forge ? forge.config : custom || null;
         const launchOptions = await this.handler.getLaunchOptions(modification, !!forge);
 
         const launchArguments = args.concat(jvm, classPaths, launchOptions);

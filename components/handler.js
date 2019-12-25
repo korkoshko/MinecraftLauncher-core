@@ -585,10 +585,10 @@ class Handler {
 
         const forgeZip = `forge-${isUniversal ? 'universal' : 'installer'}-${version}.jar`;
 
-        const download = await this.downloadAsync(downloadLink, this.options.root, forgeZip, false, 'forge');
+        const download = await this.downloadAsync(downloadLink, this.options.root, forgeZip, true, 'forge');
 
         if (!download) {
-            console.error(`[MCLC]: Failed to download forge installer: ${downloadLink}`);
+            this.client.emit('forge-installer-download-error', downloadLink);
             return false;
         }
 
@@ -699,6 +699,7 @@ class Handler {
     }
 
     getLaunchOptions(modification, isForge = false) {
+
         return new Promise(async resolve => {
             const type = modification || this.version;
 
