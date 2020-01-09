@@ -140,6 +140,10 @@ class MCLCore extends EventEmitter {
         this.emit('debug', '[MCLC]: Attempting to download assets');
         await this.handler.getAssets();
 
+        if (this.options.onlyInstall) {
+            return null;
+        }
+
         // Launch options. Thank you Lyrus for the reformat <3
 
         const modification = forge ? forge.config : custom || null;
