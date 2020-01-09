@@ -23,9 +23,10 @@ class OptiFineUtils extends EventEmitter {
     install() {
         this.emit('install-start');
 
+        const separator = process.platform === 'win32' ? ';' : ':';
         const result = child.spawnSync(this.java, [
             '-cp',
-            `${path.join(__dirname, '..', 'optifineinstaller')}:${this.installer}`,
+            `${path.join(__dirname, '..', 'optifineinstaller')}${separator}${this.installer}`,
             'OptiFineInstaller',
             this.minecraft
         ]);
