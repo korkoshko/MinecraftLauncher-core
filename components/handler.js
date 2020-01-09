@@ -6,6 +6,7 @@ const checksum = require('checksum');
 const zip = require('adm-zip');
 const child = require('child_process');
 const ForgeUtils = require('./forgeUtils');
+const OptiFineUtils = require('./optiFineUtils');
 
 let counter = 0;
 
@@ -342,20 +343,26 @@ class Handler {
             path.join(this.options.root, 'versions', this.options.version.number, this.options.version.number + '.jar')
         );
 
-        forgeUtilsInstance.on('forge-install-start', () => {
-            this.client.emit('forge-install-start');
+        forgeUtilsInstance.on('install-start', () => {
+            this.client.emit('install-start', {type: 'forge'});
         });
 
-        forgeUtilsInstance.on('forge-install-finish', () => {
-            this.client.emit('forge-install-finish');
+        forgeUtilsInstance.on('install-finish', () => {
+            this.client.emit('install-finish', {type: 'forge'});
         });
 
-        forgeUtilsInstance.on('forge-install-data', (data) => {
-            this.client.emit('forge-install-data', data);
+        forgeUtilsInstance.on('install-data', (data) => {
+            this.client.emit('install-data', {
+                type: 'forge',
+                data: data,
+            });
         });
 
-        forgeUtilsInstance.on('forge-install-error', (error) => {
-            this.client.emit('forge-install-error', error);
+        forgeUtilsInstance.on('install-error', (error) => {
+            this.client.emit('install-error', {
+                type: 'forge',
+                data: error,
+            });
         });
 
         await forgeUtilsInstance.prepareProcessors(forgeInstallProfile);
@@ -533,49 +540,6 @@ class Handler {
         return paths;
     }
 
-    async detectForgeInstall(version) {
-        const versions = fs.readdirSync(
-            path.join(this.options.root, 'versions')
-        );
-
-        const forge = versions.findIndex(dir => {
-            return dir.includes(`${version}-forge`);
-        });
-
-        if (forge === -1) {
-            return null;
-        }
-
-        const versionId = ForgeUtils.getParseVersionId(versions[forge]);
-
-        const forgeJar = path.join(
-            this.options.root,
-            'libraries',
-            'net',
-            'minecraftforge',
-            'forge',
-            versionId,
-            `forge-${versionId}.jar`,
-        );
-
-        const versionConfig = path.join(
-            this.options.root,
-            'versions',
-            versions[forge],
-            versions[forge] + '.json'
-        );
-
-        if (!fs.existsSync(versionConfig) || !fs.existsSync(forgeJar)) {
-            return null;
-        }
-
-        return {
-            jar: forgeJar,
-            version: versions[forge],
-            config: require(versionConfig),
-        };
-    }
-
     async downloadForgeInstaller(version, isUniversal = false) {
         const downloadLink = await ForgeUtils.getForgeInstallerLink(version, isUniversal);
 
@@ -588,11 +552,66 @@ class Handler {
         const download = await this.downloadAsync(downloadLink, this.options.root, forgeZip, true, 'forge');
 
         if (!download) {
-            this.client.emit('forge-installer-download-error', downloadLink);
+            this.client.emit('installer-download-error', downloadLink);
             return false;
         }
 
         return path.join(this.options.root, forgeZip);
+    }
+
+    async downloadOptiFineInstaller(version) {
+        const downloadLink = await OptiFineUtils.getOptiFineInstallerLink(version);
+
+        if (!downloadLink) {
+            return false;
+        }
+
+        const optiFineJar = `optifine-${version}-installer.jar`;
+        const download = await this.downloadAsync(downloadLink, this.options.root, optiFineJar, true, 'optifine');
+
+        if (!download) {
+            this.client.emit('installer-download-error', downloadLink);
+            return false;
+        }
+
+        return {
+            version: OptiFineUtils.getParseVersionId(version, downloadLink),
+            installer: path.join(this.options.root, optiFineJar),
+        };
+    }
+
+    async installOptiFine(installer) {
+        const OptiFine = new OptiFineUtils(
+            this.options.javaPath,
+            installer,
+            this.options.root
+        );
+
+        OptiFine.on('install-start', () => {
+            this.client.emit('install-start', {type: 'optifine'});
+        });
+
+        OptiFine.on('install-finish', () => {
+            this.client.emit('install-finish', {type: 'optifine'});
+        });
+
+        OptiFine.on('install-data', (data) => {
+            this.client.emit('install-data', {
+                type: 'optifine',
+                data: data
+            });
+        });
+
+        OptiFine.on('install-error', (error) => {
+            this.client.emit('install-error', {
+                type: 'optifine',
+                error: error
+            });
+        });
+
+        await OptiFine.install();
+
+        fs.unlinkSync(installer);
     }
 
     runInstaller(path) {
@@ -699,8 +718,8 @@ class Handler {
     }
 
     getLaunchOptions(modification, isForge = false) {
-
         return new Promise(async resolve => {
+
             const type = modification || this.version;
 
             let args = type.minecraftArguments ?

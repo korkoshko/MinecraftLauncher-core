@@ -9,7 +9,6 @@ const child = require('child_process');
 const request = require('request');
 const {parse} = require('node-html-parser');
 
-
 class ForgeUtils extends EventEmitter {
     static forgeUrl = 'https://files.minecraftforge.net';
 
@@ -75,7 +74,7 @@ class ForgeUtils extends EventEmitter {
     }
 
     installForgeProcessors(installProfile) {
-        this.emit('forge-install-start');
+        this.emit('install-start');
 
         installProfile.processors.forEach(proc => {
 
@@ -99,15 +98,15 @@ class ForgeUtils extends EventEmitter {
 
 
             if (result.stdout) {
-                this.emit('forge-install-data', result.stdout.toString('utf-8'));
+                this.emit('install-data', result.stdout.toString('utf-8'));
             }
 
             if (result.stderr) {
-                this.emit('forge-install-error', result.stderr.toString('utf-8'));
+                this.emit('install-error', result.stderr.toString('utf-8'));
             }
         });
 
-        this.emit('forge-install-finish');
+        this.emit('install-finish');
     }
 
     static getForgeInstallerLink(version, isUniversal = false) {
@@ -138,6 +137,35 @@ class ForgeUtils extends EventEmitter {
                     response(null);
                 })
         });
+    }
+
+    static detectForgeInstall(mcPath, version) {
+        const versions = fs.readdirSync(
+            path.join(mcPath, 'versions')
+        );
+
+        const forge = versions.findIndex(dir => {
+            return dir.includes(`${version}-forge`);
+        });
+
+        if (forge === -1) {
+            return null;
+        }
+
+        const versionId = ForgeUtils.getParseVersionId(versions[forge]);
+
+        const forgeJar = path.join(mcPath, 'libraries', 'net', 'minecraftforge', 'forge', versionId, `forge-${versionId}.jar`,);
+        const versionConfig = path.join(mcPath, 'versions', versions[forge], versions[forge] + '.json');
+
+        if (!fs.existsSync(versionConfig) || !fs.existsSync(forgeJar)) {
+            return null;
+        }
+
+        return {
+            jar: forgeJar,
+            version: versions[forge],
+            config: require(versionConfig),
+        };
     }
 
     static searchMainClass(pathJar) {
