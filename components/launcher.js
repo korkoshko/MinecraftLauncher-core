@@ -71,7 +71,7 @@ class MCLCore extends EventEmitter {
         if (this.options.version.optifine) {
             this.options.version.custom = await this._optifineProcess(mcPath, mcVersion);
         } else {
-            this._downloadJar(mcPath, false);
+            await this._downloadJar(mcPath, false);
         }
 
         let forge = null, custom = null;
