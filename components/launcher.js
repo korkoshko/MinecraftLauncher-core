@@ -68,19 +68,16 @@ class MCLCore extends EventEmitter {
 
         const nativePath = await this.handler.getNatives();
 
-        if (!fs.existsSync(mcPath)) {
-            this.emit('debug', '[MCLC]: Attempting to download Minecraft version jar');
-            await this.handler.getJar();
+        if (this.options.version.optifine) {
+            this.options.version.custom = await this._optifineProcess(mcPath, mcVersion);
+        } else {
+            this._downloadJar(mcPath, false);
         }
 
         let forge = null, custom = null;
 
         if (this.options.version.forge) {
             forge = await this._forgeProcess(mcVersion);
-        }
-
-        if (this.options.version.optifine) {
-            this.options.version.custom = await this._optifineProcess(mcVersion);
         }
 
         if (this.options.version.custom) {
@@ -135,7 +132,7 @@ class MCLCore extends EventEmitter {
             classPaths.push(`${jar}${classes.join(separator)}`);
             classPaths.push(file.mainClass);
         }
-        
+
         // Download version's assets
         this.emit('debug', '[MCLC]: Attempting to download assets');
         await this.handler.getAssets();
@@ -192,21 +189,29 @@ class MCLCore extends EventEmitter {
         return forge;
     }
 
-    async _optifineProcess(mcVersion) {
+    async _optifineProcess(mcPath, mcVersion) {
         let optifine = await OptiFineUtils.detectOptiFineInstall(this.options.root, mcVersion);
 
         if (optifine) {
             this.emit('debug', `[MCLC]: OptiFine detected: ${optifine.version}`);
         } else {
             this.emit('debug', `[MCLC]: OptiFine not installed: ${mcVersion}. Attempting to download OptiFine installer`);
+            optifine = await this.handler.downloadOptiFineInstaller(mcVersion);
 
-            optifine = await this.handler.downloadOptiFineInstaller(mcVersion)
+            await this._downloadJar(mcPath, true);
 
             this._launcherProfiles();
             this.handler.installOptiFine(optifine.installer);
         }
 
         return optifine.version;
+    }
+
+    async _downloadJar(mcPath, force = false) {
+        if (!fs.existsSync(mcPath) || force) {
+            this.emit('debug', '[MCLC]: Attempting to download Minecraft version jar');
+            await this.handler.getJar();
+        }
     }
 
     _launcherProfiles() {

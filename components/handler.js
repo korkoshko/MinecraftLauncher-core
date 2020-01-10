@@ -5,6 +5,7 @@ const request = require('request');
 const checksum = require('checksum');
 const zip = require('adm-zip');
 const child = require('child_process');
+
 const ForgeUtils = require('./forgeUtils');
 const OptiFineUtils = require('./optiFineUtils');
 
