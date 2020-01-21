@@ -720,7 +720,6 @@ class Handler {
 
     getLaunchOptions(modification, isForge = false) {
         return new Promise(async resolve => {
-
             const type = modification || this.version;
 
             let args = type.minecraftArguments ?

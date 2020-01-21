@@ -36,6 +36,7 @@ class MCLCore extends EventEmitter {
 
         this.emit('debug', `[MCLC]: MCLC version ${require(path.join(__dirname, '..', 'package.json')).version}`);
         const java = await this.handler.checkJava(this.options.javaPath || 'java');
+
         if (!java.run) {
             this.emit('debug', `[MCLC]: Couldn't start Minecraft due to: ${java.message}`);
             this.emit('close', 1);
@@ -62,6 +63,11 @@ class MCLCore extends EventEmitter {
 
         // Version JSON for the main launcher folder
         const versionFile = await this.handler.getVersion();
+
+        // Custom auth lib
+        if (this.options.authLib) {
+            versionFile.libraries = this._authLibProcess(versionFile.libraries);
+        }
 
         const mcPath = this.options.overrides.minecraftJar
             || this.handler.getVersionPath(this.options.version.custom || mcVersion);
@@ -205,6 +211,15 @@ class MCLCore extends EventEmitter {
         }
 
         return optifine.version;
+    }
+
+    _authLibProcess(libs) {
+        return libs.map(lib => {
+            if (lib.name.includes('authlib')) {
+                lib.downloads.artifact = this.options.authLib;
+            }
+            return lib;
+        });
     }
 
     async _downloadJar(mcPath, force = false) {
