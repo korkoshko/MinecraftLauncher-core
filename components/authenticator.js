@@ -1,6 +1,7 @@
 const request = require('request');
 const uuid = require('uuid/v1');
-const api_url = "https://authserver.mojang.com";
+
+let api_url = "https://authserver.mojang.com";
 
 module.exports.getAuth = function (username, password) {
     return new Promise((resolve, reject) => {
@@ -43,7 +44,7 @@ module.exports.getAuth = function (username, password) {
                 uuid: body.selectedProfile.id,
                 name: body.selectedProfile.name,
                 selected_profile: body.selectedProfile,
-                user_properties: JSON.stringify(body.user.properties || {})
+                user_properties: JSON.stringify(body.user ? body.user.properties : {})
             };
 
             resolve(userProfile);
@@ -137,4 +138,12 @@ module.exports.signOut = function (username, password) {
             else reject(body);
         });
     });
+};
+
+module.exports.setApiUrl = function (url) {
+    return api_url = url;
+};
+
+module.exports.getApiUrl = function (url) {
+    return api_url;
 };

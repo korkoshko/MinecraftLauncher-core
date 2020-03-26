@@ -272,11 +272,18 @@ class Handler {
                 });
 
                 await Promise.all(stat.map(async (native) => {
+                    if (!native || !native.path) {
+                        return;
+                    }
+
                     const name = native.path.split('/').pop();
+
                     await this.downloadAsync(native.url, nativeDirectory, name, true, 'natives');
+
                     if (!await this.checkSum(native.sha1, path.join(nativeDirectory, name))) {
                         await this.downloadAsync(native.url, nativeDirectory, name, true, 'natives');
                     }
+
                     try {
                         new zip(path.join(nativeDirectory, name)).extractAllTo(nativeDirectory, true);
                     } catch (e) {
@@ -286,10 +293,10 @@ class Handler {
                         console.warn(e);
                     }
                     shelljs.rm(path.join(nativeDirectory, name));
-                    counter = counter + 1;
+
                     this.client.emit('progress', {
                         type: 'natives',
-                        task: counter,
+                        task: ++counter,
                         total: stat.length
                     })
                 }));
